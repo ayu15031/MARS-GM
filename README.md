@@ -1,4 +1,4 @@
-# GraphRec_PyTorch
+## GraphRec_PyTorch
 A PyTorch implementation of the GraphRec model in [Graph Neural Networks for Social Recommendation](https://arxiv.org/pdf/1902.07243.pdf) (Fan, Wenqi, et al. "Graph Neural Networks for Social Recommendation." The World Wide Web Conference. ACM, 2019).
 
 ![architecture](assets/graphrec.png)
