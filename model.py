@@ -69,25 +69,14 @@ class _UserModel(nn.Module):
         u_item_er = self.rate_emb(u_item_pad[:,:,1])  # B x maxi_len x emb_dim
         
         x_ia = self.g_v(torch.cat([q_a, u_item_er], dim = 2).view(-1, 2 * self.emb_dim)).view(q_a.size())  # B x maxi_len x emb_dim
-        # mask_u = mask_u.unsqueeze(-1).expand(-1, -1, 12)
-        # print("mask size", mask_u.shape)
+
         ## calculate attention scores in item aggregation 
-        # 256x30x12
-        # embeds =  self.user_emb(uids).unsqueeze(1).expand_as(x_ia).unsqueeze(-1).expand(-1, -1, -1, 12)
-        # print("embed", embeds.shape)
-        # p_i = mask_u.unsqueeze(-2).expand(-1, -1, 64, -1) * embeds  # B x maxi_len x emb_dim
-        # print("p_i size", p_i.shape)
         p_i = mask_u.unsqueeze(2).expand_as(x_ia) * self.user_emb(uids).unsqueeze(1).expand_as(x_ia)  # B x maxi_len x emb_dim
-        # print(x_ia.shape)
-        # x_ia = x_ia.unsqueeze(-1).expand(-1, -1, -1, 12)
-        alpha = self.user_items_att(torch.cat([x_ia, p_i], dim = 2).view(-1, 2 * self.emb_dim))
-        # print("first", alpha.shape)
-        mask_u = mask_u.unsqueeze(-1).expand(-1, -1, self.num_heads)
-        alpha = alpha.view(mask_u.size()) # B x maxi_len
+        
+        alpha = self.user_items_att(torch.cat([x_ia, p_i], dim = 2).view(-1, 2 * self.emb_dim)).view(mask_u.size()) # B x maxi_len
         alpha = torch.exp(alpha) * mask_u
         alpha = alpha / (torch.sum(alpha, 1).unsqueeze(1).expand_as(alpha) + self.eps)
-        alpha = torch.mean(alpha, dim=-1)
-        # print("sec", alpha.shape)
+
         h_iI = self.aggre_items(torch.sum(alpha.unsqueeze(2).expand_as(x_ia) * x_ia, 1))     # B x emb_dim
 
         # social aggregation
@@ -99,13 +88,9 @@ class _UserModel(nn.Module):
 
         p_i_s = mask_s.unsqueeze(3).expand_as(x_ia_s) * self.user_emb(u_user_pad).unsqueeze(2).expand_as(x_ia_s)  # B x maxu_len x maxi_len x emb_dim
 
-        alpha_s = self.user_items_att(torch.cat([x_ia_s, p_i_s], dim = 3).view(-1, 2 * self.emb_dim))    # B x maxu_len x maxi_len
-        # print("social", alpha_s.shape, mask_s.shape)
-        mask_s = mask_s.unsqueeze(-1).expand(-1, -1, -1, self.num_heads)
-        alpha_s = alpha_s.view(mask_s.size())
+        alpha_s = self.user_items_att(torch.cat([x_ia_s, p_i_s], dim = 3).view(-1, 2 * self.emb_dim)).view(mask_s.size())    # B x maxu_len x maxi_len
         alpha_s = torch.exp(alpha_s) * mask_s
         alpha_s = alpha_s / (torch.sum(alpha_s, 2).unsqueeze(2).expand_as(alpha_s) + self.eps)
-        alpha_s = alpha_s.mean(-1)
 
         h_oI_temp = torch.sum(alpha_s.unsqueeze(3).expand_as(x_ia_s) * x_ia_s, 2)    # B x maxu_len x emb_dim
         h_oI = self.aggre_items(h_oI_temp.view(-1, self.emb_dim)).view(h_oI_temp.size())  # B x maxu_len x emb_dim
@@ -121,6 +106,94 @@ class _UserModel(nn.Module):
         h_i = self.combine_mlp(torch.cat([h_iI, h_iS], dim = 1))
 
         return h_i
+
+
+class _ItemModel_GraphRecPlus(nn.Module):
+    ''' Item modeling to learn item latent factors.
+       Item modeling leverages two types aggregation: user aggregation and item2item aggregation
+    '''
+    def __init__(self, emb_dim, user_emb, item_emb, rate_emb):
+        super(_ItemModel_GraphRecPlus, self).__init__()
+        self.user_emb = user_emb
+        self.item_emb = item_emb
+        self.rate_emb = rate_emb
+        self.emb_dim = emb_dim
+
+        self.g_u = _MultiLayerPercep(2 * self.emb_dim, self.emb_dim)
+
+        self.item_users_att = _MultiLayerPercep(2 * self.emb_dim, 1)
+        self.aggre_items = _Aggregation(self.emb_dim, self.emb_dim)
+
+        self.item_items_att = _MultiLayerPercep(2 * self.emb_dim, 1)
+        self.aggre_item2item = _Aggregation(self.emb_dim, self.emb_dim)
+
+        self.combine_mlp = nn.Sequential(
+            nn.Linear(2 * self.emb_dim, self.emb_dim, bias=True),
+            nn.ReLU(),
+            nn.Linear(self.emb_dim, self.emb_dim, bias=True),
+            nn.ReLU(),
+            nn.Linear(self.emb_dim, self.emb_dim, bias=True),
+            nn.ReLU(),
+        )
+
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        # used for preventing zero div error when calculating softmax score
+        self.eps = 1e-10
+
+    def forward(self, iids, i_user_pad, i_item_pad, i_item_user_pad):
+        # user aggregation
+        p_t = self.user_emb(i_user_pad[:, :, 0])
+        mask_i = torch.where(i_user_pad[:, :, 0] > 0, torch.tensor([1.], device=self.device),
+                             torch.tensor([0.], device=self.device))
+        i_user_er = self.rate_emb(i_user_pad[:, :, 1])
+
+        f_jt = self.g_u(torch.cat([p_t, i_user_er], dim=2).view(-1, 2 * self.emb_dim)).view(p_t.size())
+
+        # calculate attention scores in user aggregation
+        q_j = mask_i.unsqueeze(2).expand_as(f_jt) * self.item_emb(iids).unsqueeze(1).expand_as(f_jt)
+
+        miu = self.item_users_att(torch.cat([f_jt, q_j], dim=2).view(-1, 2 * self.emb_dim)).view(mask_i.size())
+        miu = torch.exp(miu) * mask_i
+        miu = miu / (torch.sum(miu, 1).unsqueeze(1).expand_as(miu) + self.eps)
+
+        h_jU = self.aggre_items(torch.sum(miu.unsqueeze(2).expand_as(f_jt) * f_jt, 1))
+
+        # social aggregation
+        q_a_s = self.item_emb(i_item_user_pad[:, :, :, 0])  # B x maxu_len x maxi_len x emb_dim
+        mask_s = torch.where(i_item_user_pad[:, :, :, 0] > 0, torch.tensor([1.], device=self.device),
+                             torch.tensor([0.], device=self.device))  # B x maxu_len x maxi_len
+        i_item_user_er = self.rate_emb(i_item_user_pad[:, :, :, 1])  # B x maxu_len x maxi_len x emb_dim
+
+        x_ia_s = self.g_u(torch.cat([q_a_s, i_item_user_er], dim=3).view(-1, 2 * self.emb_dim)).view(
+            q_a_s.size())  # B x maxu_len x maxi_len x emb_dim
+        print(i_item_pad.shape, " i item pad")
+        print(x_ia_s.shape, " x_ia_s")
+        print(mask_s.shape, " mask_s")
+        p_i_s = mask_s.unsqueeze(3).expand_as(x_ia_s) * self.item_emb(i_item_pad).unsqueeze(2).expand_as(
+            x_ia_s)  # B x maxu_len x maxi_len x emb_dim
+
+        miu_s = self.item_users_att(torch.cat([x_ia_s, p_i_s], dim=3).view(-1, 2 * self.emb_dim)).view(
+            mask_s.size())  # B x maxu_len x maxi_len
+        miu_s = torch.exp(miu_s) * mask_s
+        miu_s = miu_s / (torch.sum(miu_s, 2).unsqueeze(2).expand_as(miu_s) + self.eps)
+
+        h_oU_temp = torch.sum(miu_s.unsqueeze(3).expand_as(x_ia_s) * x_ia_s, 2)  # B x maxu_len x emb_dim
+        h_oU = self.aggre_items(h_oU_temp.view(-1, self.emb_dim)).view(h_oU_temp.size())  # B x maxu_len x emb_dim
+
+        ####
+
+        kappa = self.item_items_att(torch.cat([h_oU, self.user_emb(i_item_pad)], dim=2).view(-1, 2 * self.emb_dim)).view(
+            i_item_pad.size())
+        mask_su = torch.where(i_item_pad > 0, torch.tensor([1.], device=self.device),
+                              torch.tensor([0.], device=self.device))
+        kappa = torch.exp(kappa) * mask_su
+        kappa = kappa / (torch.sum(kappa, 1).unsqueeze(1).expand_as(kappa) + self.eps)
+        h_jV = self.aggre_item2item(torch.sum(kappa.unsqueeze(2).expand_as(h_oU) * h_oU, 1))  # B x emb_dim
+
+        ## learning user latent factor
+        h_j = self.combine_mlp(torch.cat([h_jU, h_jV], dim=1))
+
+        return h_j
 
 
 class _ItemModel(nn.Module):
@@ -179,7 +252,7 @@ class GraphRec(nn.Module):
         emb_dim: the dimension of user and item embedding (default = 64).
 
     '''
-    def __init__(self, num_users, num_items, num_rate_levels, emb_dim = 64):
+    def __init__(self, num_users, num_items, num_rate_levels, emb_dim = 64, dataset=None):
         super(GraphRec, self).__init__()
         self.num_users = num_users
         self.num_items = num_items
@@ -191,7 +264,10 @@ class GraphRec(nn.Module):
 
         self.user_model = _UserModel(self.emb_dim, self.user_emb, self.item_emb, self.rate_emb)
 
-        self.item_model = _ItemModel(self.emb_dim, self.user_emb, self.item_emb, self.rate_emb)
+        if dataset == "FilmTrust":
+          self.item_model = _ItemModel_GraphRecPlus(self.emb_dim, self.user_emb, self.item_emb, self.rate_emb)
+        else:
+          self.item_model = _ItemModel(self.emb_dim, self.user_emb, self.item_emb, self.rate_emb)
         
         self.rate_pred = nn.Sequential(
             nn.Linear(2 * self.emb_dim, self.emb_dim, bias = True),
@@ -202,7 +278,7 @@ class GraphRec(nn.Module):
         )
 
 
-    def forward(self, uids, iids, u_item_pad, u_user_pad, u_user_item_pad, i_user_pad):
+    def forward(self, uids, iids, u_item_pad, u_user_pad, u_user_item_pad, i_user_pad, dataset=None, i_item_pad=None, i_item_user_pad=None):
         '''
         Args:
             uids: the user id sequences.
@@ -225,7 +301,11 @@ class GraphRec(nn.Module):
         '''
 
         h_i = self.user_model(uids, u_item_pad, u_user_pad, u_user_item_pad)
-        z_j = self.item_model(iids, i_user_pad)
+        if dataset == "FilmTrust":
+          z_j = self.item_model(iids, i_user_pad, i_item_pad, i_item_user_pad)
+
+        else:  
+          z_j = self.item_model(iids, i_user_pad)
 
         # make prediction
         r_ij = self.rate_pred(torch.cat([h_i, z_j], dim = 1))

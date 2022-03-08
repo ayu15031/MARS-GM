@@ -167,12 +167,53 @@ for u in tqdm(range(user_count + 1)):
 		for uid in u_users:
 			uu_items.append(u_items_list[uid])
 		u_users_items_list.append(uu_items)
-	
+
+if args.dataset == "FilmTrust":
+  item_user_list = np.zeros((len(i_users_list), len(u_items_list))) + 1e-8
+
+  for i in range(len(i_users_list)):
+    for user, rating in i_users_list[i]:
+      item_user_list[i][user] = rating
+
+  average = item_user_list - np.mean(item_user_list, axis=1).reshape(-1,1)
+  denom = np.sqrt(np.sum(item_user_list*item_user_list, axis=1))
+
+  sim = average.dot(average.T)
+
+  for i in range(2072):
+    for j in range(2072):
+      sim[i][j] /= denom[i]*denom[j]
+
+  item_item_list = []
+
+  for i in range(len(sim)):
+    array = sim[i][[j for j in range(len(sim[i])) if i != j]]
+    item_item_list.append(np.argsort(array)[::-1][:30])
+
+  with open('item_item.pkl', 'wb') as f:
+    pickle.dump(item_item_list, f)
+
+  i_items_users_list = []
+  for i in tqdm(range(2072)):
+    ii_items = []
+    for iid in item_item_list[i]:
+      ii_items.append(i_users_list[iid])
+    i_items_users_list.append(ii_items)
+
+  
+  with open('dataset/FilmTrust/i_items_users_list.pkl', 'wb') as f:
+    pickle.dump(i_items_users_list, f)
+    
+
+print(item_count, len(item_item_list))
 with open(workdir + args.dataset + '/list.pkl', 'wb') as f:
-	pickle.dump(u_items_list, f, pickle.HIGHEST_PROTOCOL)
-	pickle.dump(u_users_list, f, pickle.HIGHEST_PROTOCOL)
-	pickle.dump(u_users_items_list, f, pickle.HIGHEST_PROTOCOL)
-	pickle.dump(i_users_list, f, pickle.HIGHEST_PROTOCOL)
-	pickle.dump((user_count, item_count, rate_count), f, pickle.HIGHEST_PROTOCOL)
+  pickle.dump(u_items_list, f, pickle.HIGHEST_PROTOCOL)
+  pickle.dump(u_users_list, f, pickle.HIGHEST_PROTOCOL)
+  pickle.dump(u_users_items_list, f, pickle.HIGHEST_PROTOCOL)
+  pickle.dump(i_users_list, f, pickle.HIGHEST_PROTOCOL)
+  pickle.dump(item_item_list, f, pickle.HIGHEST_PROTOCOL)
+  pickle.dump(i_items_users_list, f, pickle.HIGHEST_PROTOCOL)
+  pickle.dump((user_count, item_count, rate_count), f, pickle.HIGHEST_PROTOCOL)
+  
 
 

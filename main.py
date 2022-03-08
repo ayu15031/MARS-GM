@@ -9,6 +9,7 @@ Created on 30 Sep, 2019
 import os
 import time
 import argparse
+import sys
 import pickle5 as pickle
 import numpy as np
 import random
@@ -17,19 +18,21 @@ from os.path import join
 
 import torch
 from torch import nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, dataset
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR
 from torch.autograd import Variable
 from torch.backends import cudnn
 
-from utils import collate_fn
+from utils import collate_fn, collate_fn_Film
 from model import GraphRec
 from dataloader import GRDataset
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset_path', default='dataset/Ciao/', help='dataset directory path: datasets/Ciao/Epinions')
+
+parser.add_argument('--dataset', default='FilmTrust', help='dataset Name')
+parser.add_argument('--dataset_path', default='dataset/FilmTrust/', help='dataset directory path: datasets/Ciao/Epinions')
 parser.add_argument('--batch_size', type=int, default=256, help='input batch size')
 parser.add_argument('--embed_dim', type=int, default=64, help='the dimension of embedding')
 parser.add_argument('--epoch', type=int, default=30, help='the number of epochs to train for')
@@ -55,16 +58,34 @@ def main():
         u_users_list = pickle.load(f)
         u_users_items_list = pickle.load(f)
         i_users_list = pickle.load(f)
-        (user_count, item_count, rate_count) = pickle.load(f)
-    
-    train_data = GRDataset(train_set, u_items_list, u_users_list, u_users_items_list, i_users_list)
-    valid_data = GRDataset(valid_set, u_items_list, u_users_list, u_users_items_list, i_users_list)
-    test_data = GRDataset(test_set, u_items_list, u_users_list, u_users_items_list, i_users_list)
-    train_loader = DataLoader(train_data, batch_size = args.batch_size, shuffle = True, collate_fn = collate_fn)
-    valid_loader = DataLoader(valid_data, batch_size = args.batch_size, shuffle = False, collate_fn = collate_fn)
-    test_loader = DataLoader(test_data, batch_size = args.batch_size, shuffle = False, collate_fn = collate_fn)
+        i_items_list = None
+        i_items_users_list = None
+        if args.dataset == 'FilmTrust':
+          i_items_list = pickle.load(f)
+          i_items_users_list = pickle.load(f)
 
-    model = GraphRec(user_count+1, item_count+1, rate_count+1, args.embed_dim).to(device)
+        (user_count, item_count, rate_count) = pickle.load(f)
+        
+    
+    # train_data, test_data, valid_data = DatasetManager(train_set, valid_set, test_set, u_items_list, u_users_list, u_users_items_list, i_users_list)
+    train_data = GRDataset(train_set, u_items_list, u_users_list, u_users_items_list, i_users_list, dataset=args.dataset, i_items_list=i_items_list, i_items_users_list=i_items_users_list)
+    valid_data = GRDataset(valid_set, u_items_list, u_users_list, u_users_items_list, i_users_list, dataset=args.dataset, i_items_list=i_items_list, i_items_users_list=i_items_users_list)
+    test_data = GRDataset(test_set, u_items_list, u_users_list, u_users_items_list, i_users_list, dataset=args.dataset, i_items_list=i_items_list, i_items_users_list=i_items_users_list)
+    # train_data = GRDataset(train_set, u_items_list, u_users_list, u_users_items_list, i_users_list)
+    # valid_data = GRDataset(valid_set, u_items_list, u_users_list, u_users_items_list, i_users_list)
+    # test_data = GRDataset(test_set, u_items_list, u_users_list, u_users_items_list, i_users_list)
+    
+    if args.dataset == "FilmTrust":
+      train_loader = DataLoader(train_data, batch_size = args.batch_size, shuffle = True, collate_fn = collate_fn_Film)
+      valid_loader = DataLoader(valid_data, batch_size = args.batch_size, shuffle = False, collate_fn = collate_fn_Film)
+      test_loader = DataLoader(test_data, batch_size = args.batch_size, shuffle = False, collate_fn = collate_fn_Film)
+    else:
+      train_loader = DataLoader(train_data, batch_size = args.batch_size, shuffle = True, collate_fn = collate_fn)
+      valid_loader = DataLoader(valid_data, batch_size = args.batch_size, shuffle = False, collate_fn = collate_fn)
+      test_loader = DataLoader(test_data, batch_size = args.batch_size, shuffle = False, collate_fn = collate_fn)
+
+    
+    model = GraphRec(user_count+1, item_count+1, rate_count+1, args.embed_dim, args.dataset).to(device)
 
     if args.test:
         print('Load checkpoint and testing...')
@@ -109,7 +130,7 @@ def trainForEpoch(train_loader, model, optimizer, epoch, num_epochs, criterion, 
     sum_epoch_loss = 0
 
     start = time.time()
-    for i, (uids, iids, labels, u_items, u_users, u_users_items, i_users) in tqdm(enumerate(train_loader), total=len(train_loader)):
+    for i, (uids, iids, labels, u_items, u_users, u_users_items, i_users, i_items, i_items_users) in tqdm(enumerate(train_loader), total=len(train_loader)):
         uids = uids.to(device)
         iids = iids.to(device)
         labels = labels.to(device)
@@ -117,9 +138,14 @@ def trainForEpoch(train_loader, model, optimizer, epoch, num_epochs, criterion, 
         u_users = u_users.to(device)
         u_users_items = u_users_items.to(device)
         i_users = i_users.to(device)
+        if i_items is not None:
+          i_items = i_items.to(device)
+
+        if i_items_users is not None:
+          i_items_users = i_items_users.to(device)
         
         optimizer.zero_grad()
-        outputs = model(uids, iids, u_items, u_users, u_users_items, i_users)
+        outputs = model(uids, iids, u_items, u_users, u_users_items, i_users, i_item_pad=i_items, i_item_user_pad=i_items_users, dataset=args.dataset)
 
         loss = criterion(outputs, labels.unsqueeze(1))
         loss.backward()
