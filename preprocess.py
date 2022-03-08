@@ -88,10 +88,10 @@ valid_set = pos_list[num_test:2 * num_test]
 train_set = pos_list[2 * num_test:]
 print('Train samples: {}, Valid samples: {}, Test samples: {}'.format(len(train_set), len(valid_set), len(test_set)))
 
-# with open(workdir + args.dataset + '/dataset.pkl', 'wb') as f:
-# 	pickle.dump(train_set, f, pickle.HIGHEST_PROTOCOL)
-# 	pickle.dump(valid_set, f, pickle.HIGHEST_PROTOCOL)
-# 	pickle.dump(test_set, f, pickle.HIGHEST_PROTOCOL)
+with open(workdir + args.dataset + '/dataset.pkl', 'wb') as f:
+	pickle.dump(train_set, f, pickle.HIGHEST_PROTOCOL)
+	pickle.dump(valid_set, f, pickle.HIGHEST_PROTOCOL)
+	pickle.dump(test_set, f, pickle.HIGHEST_PROTOCOL)
 
 
 train_df = pd.DataFrame(train_set, columns = ['uid', 'iid', 'label'])
@@ -114,8 +114,8 @@ for u in tqdm(range(user_count + 1)):
 		u_items_list.append([(iid, rating) for iid, rating in zip(u_items, u_ratings)])
 
 
-# with open('user_item.pkl', 'wb') as f:
-# 	pickle.dump(u_items_list, f)
+with open('user_item.pkl', 'wb') as f:
+	pickle.dump(u_items_list, f)
 # sys.exit()
 # print(u_items_list[1])
 # # sys.exit()
@@ -134,8 +134,8 @@ for i in tqdm(range(item_count + 1)):
 		i_users_list.append([(uid, rating) for uid, rating in zip(i_users, i_ratings)])
 # print(len(i_users_list))
 # print(i_users_list[1])
-# with open('item_user.pkl', 'wb') as f:
-# 	pickle.dump(i_users_list, f)
+with open('item_user.pkl', 'wb') as f:
+	pickle.dump(i_users_list, f)
 # sys.exit()
 for s in trust_f:
 	uid = s[0]
@@ -144,8 +144,8 @@ for s in trust_f:
 		continue
 	trust_list.append([uid, fid])
 
-# with open('user_user.pkl', 'wb') as f:
-# 	pickle.dump(trust_list, f)
+with open('user_user.pkl', 'wb') as f:
+	pickle.dump(trust_list, f)
 # sys.exit()
 trust_df = pd.DataFrame(trust_list, columns = ['uid', 'fid'])
 trust_df = trust_df.sort_values(axis = 0, ascending = True, by = 'uid')
@@ -168,11 +168,11 @@ for u in tqdm(range(user_count + 1)):
 			uu_items.append(u_items_list[uid])
 		u_users_items_list.append(uu_items)
 	
-# with open(workdir + args.dataset + '/list.pkl', 'wb') as f:
-# 	pickle.dump(u_items_list, f, pickle.HIGHEST_PROTOCOL)
-# 	pickle.dump(u_users_list, f, pickle.HIGHEST_PROTOCOL)
-# 	pickle.dump(u_users_items_list, f, pickle.HIGHEST_PROTOCOL)
-# 	pickle.dump(i_users_list, f, pickle.HIGHEST_PROTOCOL)
-# 	pickle.dump((user_count, item_count, rate_count), f, pickle.HIGHEST_PROTOCOL)
+with open(workdir + args.dataset + '/list.pkl', 'wb') as f:
+	pickle.dump(u_items_list, f, pickle.HIGHEST_PROTOCOL)
+	pickle.dump(u_users_list, f, pickle.HIGHEST_PROTOCOL)
+	pickle.dump(u_users_items_list, f, pickle.HIGHEST_PROTOCOL)
+	pickle.dump(i_users_list, f, pickle.HIGHEST_PROTOCOL)
+	pickle.dump((user_count, item_count, rate_count), f, pickle.HIGHEST_PROTOCOL)
 
 
