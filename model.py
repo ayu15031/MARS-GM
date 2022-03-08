@@ -1,6 +1,6 @@
 from torch import nn
 import torch
-# from torch_multi_head_attention import MultiHeadAttention
+from torch_multi_head_attention import MultiHeadAttention
 
 
 class _MultiLayerPercep(nn.Module):
@@ -43,9 +43,13 @@ class _UserModel(nn.Module):
         self.g_v = _MultiLayerPercep(2 * self.emb_dim, self.emb_dim)
 
         self.user_items_att = _MultiLayerPercep(2 * self.emb_dim, self.num_heads)
+        self.user_items_head = _MultiLayerPercep(self.num_heads * 30, 30)
+        
         self.aggre_items = _Aggregation(self.emb_dim, self.emb_dim)
 
-        self.user_users_att = _MultiLayerPercep(2 * self.emb_dim, 1)
+        self.user_users_att = _MultiLayerPercep(2 * self.emb_dim, self.num_heads)
+        self.user_users_head = _MultiLayerPercep(self.num_heads * 30, 30)
+
         self.aggre_neigbors = _Aggregation(self.emb_dim, self.emb_dim)
         
         self.combine_mlp = nn.Sequential(
@@ -72,22 +76,21 @@ class _UserModel(nn.Module):
         # mask_u = mask_u.unsqueeze(-1).expand(-1, -1, 12)
         # print("mask size", mask_u.shape)
         ## calculate attention scores in item aggregation 
-        # 256x30x12
         # embeds =  self.user_emb(uids).unsqueeze(1).expand_as(x_ia).unsqueeze(-1).expand(-1, -1, -1, 12)
         # print("embed", embeds.shape)
         # p_i = mask_u.unsqueeze(-2).expand(-1, -1, 64, -1) * embeds  # B x maxi_len x emb_dim
         # print("p_i size", p_i.shape)
         p_i = mask_u.unsqueeze(2).expand_as(x_ia) * self.user_emb(uids).unsqueeze(1).expand_as(x_ia)  # B x maxi_len x emb_dim
-        # print(x_ia.shape)
         # x_ia = x_ia.unsqueeze(-1).expand(-1, -1, -1, 12)
         alpha = self.user_items_att(torch.cat([x_ia, p_i], dim = 2).view(-1, 2 * self.emb_dim))
-        # print("first", alpha.shape)
-        mask_u = mask_u.unsqueeze(-1).expand(-1, -1, self.num_heads)
-        alpha = alpha.view(mask_u.size()) # B x maxi_len
-        alpha = torch.exp(alpha) * mask_u
-        alpha = alpha / (torch.sum(alpha, 1).unsqueeze(1).expand_as(alpha) + self.eps)
-        alpha = torch.mean(alpha, dim=-1)
-        # print("sec", alpha.shape)
+        mask_un = mask_u.unsqueeze(-1).expand(-1, -1, self.num_heads)
+        alpha = alpha.view(mask_un.size()) # B x maxi_len
+        alpha_r = alpha.view(-1, alpha.shape[-2] * self.num_heads)
+        alpha_r = self.user_items_head(alpha_r)
+
+        alpha = torch.exp(alpha_r) * mask_u
+        alpha = alpha / (torch.sum(alpha, 1).unsqueeze(1).expand_as(alpha) + self.eps)        
+        
         h_iI = self.aggre_items(torch.sum(alpha.unsqueeze(2).expand_as(x_ia) * x_ia, 1))     # B x emb_dim
 
         # social aggregation
@@ -101,19 +104,28 @@ class _UserModel(nn.Module):
 
         alpha_s = self.user_items_att(torch.cat([x_ia_s, p_i_s], dim = 3).view(-1, 2 * self.emb_dim))    # B x maxu_len x maxi_len
         # print("social", alpha_s.shape, mask_s.shape)
-        mask_s = mask_s.unsqueeze(-1).expand(-1, -1, -1, self.num_heads)
-        alpha_s = alpha_s.view(mask_s.size())
-        alpha_s = torch.exp(alpha_s) * mask_s
+        mask_sn = mask_s.unsqueeze(-1).expand(-1, -1, -1, self.num_heads)
+        alpha_s = alpha_s.view(mask_sn.size())
+        alpha_r = alpha_s.view(alpha_s.shape[0], alpha_s.shape[1], alpha_s.shape[-2] * self.num_heads)
+        alpha_r = self.user_items_head(alpha_r)
+        alpha_s = torch.exp(alpha_r) * mask_s
         alpha_s = alpha_s / (torch.sum(alpha_s, 2).unsqueeze(2).expand_as(alpha_s) + self.eps)
-        alpha_s = alpha_s.mean(-1)
+        # alpha_s = alpha_s.mean(-1)
 
         h_oI_temp = torch.sum(alpha_s.unsqueeze(3).expand_as(x_ia_s) * x_ia_s, 2)    # B x maxu_len x emb_dim
         h_oI = self.aggre_items(h_oI_temp.view(-1, self.emb_dim)).view(h_oI_temp.size())  # B x maxu_len x emb_dim
 
         ## calculate attention scores in social aggregation
-        beta = self.user_users_att(torch.cat([h_oI, self.user_emb(u_user_pad)], dim = 2).view(-1, 2 * self.emb_dim)).view(u_user_pad.size())
+        beta = self.user_users_att(torch.cat([h_oI, self.user_emb(u_user_pad)], dim = 2).view(-1, 2 * self.emb_dim))
         mask_su = torch.where(u_user_pad > 0, torch.tensor([1.], device=self.device), torch.tensor([0.], device=self.device))
-        beta = torch.exp(beta) * mask_su
+        # print(beta.shape, mask_su.shape)
+        mask_sun = mask_su.unsqueeze(-1).expand(-1, -1, self.num_heads)
+        beta = beta.view(mask_sun.size()) # B x maxi_len
+        # print(beta.shape)
+        beta_r = beta.view(-1, beta.shape[-2] * self.num_heads)
+        beta_r = self.user_users_head(beta_r)
+        
+        beta = torch.exp(beta_r) * mask_su
         beta = beta / (torch.sum(beta, 1).unsqueeze(1).expand_as(beta) + self.eps)
         h_iS = self.aggre_neigbors(torch.sum(beta.unsqueeze(2).expand_as(h_oI) * h_oI, 1))     # B x emb_dim
 
@@ -138,6 +150,7 @@ class _ItemModel(nn.Module):
         self.g_u = _MultiLayerPercep(2 * self.emb_dim, self.emb_dim)
         
         self.item_users_att = _MultiLayerPercep(2 * self.emb_dim, self.num_heads)
+        self.item_users_head = _MultiLayerPercep(30 * self.num_heads, 30)
         self.aggre_users = _Aggregation(self.emb_dim, self.emb_dim)
 
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -156,13 +169,16 @@ class _ItemModel(nn.Module):
         q_j = mask_i.unsqueeze(2).expand_as(f_jt) * self.item_emb(iids).unsqueeze(1).expand_as(f_jt)
         # print(mask_i.shape)
         miu = self.item_users_att(torch.cat([f_jt, q_j], dim = 2).view(-1, 2 * self.emb_dim))
-        mask_i = mask_i.unsqueeze(-1).expand(-1, -1, self.num_heads)
+        mask_iu = mask_i.unsqueeze(-1).expand(-1, -1, self.num_heads)
+        miu = miu.view(mask_iu.size())
+        miu_r = miu.view(miu.shape[0], miu.shape[-2] * self.num_heads)
+        miu_r = self.item_users_head(miu_r)
+        # miu = miu.view(mask_i.size())
+        # print(miu.shape)
         
-        miu = miu.view(mask_i.size())
-        
-        miu = torch.exp(miu) * mask_i
+        miu = torch.exp(miu_r) * mask_i
         miu = miu / (torch.sum(miu, 1).unsqueeze(1).expand_as(miu) + self.eps)
-        miu = miu.mean(dim=-1)
+        # miu = miu.mean(dim=-1)
 
         z_j = self.aggre_users(torch.sum(miu.unsqueeze(2).expand_as(f_jt) * f_jt, 1))
 
