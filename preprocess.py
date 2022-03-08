@@ -15,7 +15,7 @@ from scipy.io import loadmat
 import sys
 random.seed(1234)
 
-workdir = 'datasets/'
+workdir = 'dataset/'
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', default='Ciao', help='dataset name: Ciao/Epinions')
@@ -29,7 +29,10 @@ if args.dataset == 'Ciao':
 elif args.dataset == 'Epinions':
 	click_f = np.loadtxt(workdir+'Epinions/ratings_data.txt', dtype = np.int32)
 	trust_f = np.loadtxt(workdir+'Epinions/trust_data.txt', dtype = np.int32)
-else:
+elif args.dataset == "FilmTrust":
+	click_f = np.loadtxt(workdir + 'FilmTrust/ratings.txt', dtype = np.int32)
+	trust_f = np.loadtxt(workdir+'FilmTrust/trust.txt', dtype = np.int32)	
+else:	
 	pass 
 
 # print(click_f.shape)
@@ -56,6 +59,8 @@ for s in click_f:
 		label = s[3]
 	elif args.dataset == 'Epinions':
 		label = s[2]
+	elif args.dataset == "FilmTrust":
+		label = s[2]	
 
 	if uid > user_count:
 		user_count = uid
