@@ -149,7 +149,8 @@ def trainForEpoch(train_loader, model, optimizer, epoch, num_epochs, criterion, 
 
         loss = criterion(outputs, labels.unsqueeze(1))
         loss.backward()
-        optimizer.step() 
+        optimizer.step()
+        # scheduler.step()
 
         loss_val = loss.item()
         sum_epoch_loss += loss_val
