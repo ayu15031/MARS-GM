@@ -15,7 +15,7 @@ from scipy.io import loadmat
 import sys
 random.seed(1234)
 
-workdir = 'datasets/'
+workdir = 'dataset/'
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', default='Ciao', help='dataset name: Ciao/Epinions')
@@ -59,7 +59,7 @@ for s in click_f:
 		label = s[3]
 	elif args.dataset == 'Epinions':
 		label = s[2]
-	elif args.dataset == "FilmTrust"
+	elif args.dataset == "FilmTrust":
 		label = s[2]	
 
 	if uid > user_count:
