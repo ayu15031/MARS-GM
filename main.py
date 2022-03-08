@@ -9,7 +9,7 @@ Created on 30 Sep, 2019
 import os
 import time
 import argparse
-import pickle
+import pickle5 as pickle
 import numpy as np
 import random
 from tqdm import tqdm
@@ -130,10 +130,10 @@ def trainForEpoch(train_loader, model, optimizer, epoch, num_epochs, criterion, 
 
         iter_num = epoch * len(train_loader) + i + 1
 
-        if i % log_aggr == 0:
-            print('[TRAIN] epoch %d/%d batch loss: %.4f (avg %.4f) (%.2f im/s)'
-                % (epoch + 1, num_epochs, loss_val, sum_epoch_loss / (i + 1),
-                  len(uids) / (time.time() - start)))
+        # if i % log_aggr == 0:
+        #     print('[TRAIN] epoch %d/%d batch loss: %.4f (avg %.4f) (%.2f im/s)'
+        #         % (epoch + 1, num_epochs, loss_val, sum_epoch_loss / (i + 1),
+        #           len(uids) / (time.time() - start)))
 
         start = time.time()
 
@@ -151,8 +151,8 @@ def validate(valid_loader, model):
             u_users_items = u_users_items.to(device)
             i_users = i_users.to(device)
             preds = model(uids, iids, u_items, u_users, u_users_items, i_users)
-            print(preds.squeeze(1))
-            print(labels)
+            # print(preds.squeeze(1))
+            # print(labels)
             error = torch.abs(preds.squeeze(1) - labels)
             errors.extend(error.data.cpu().numpy().tolist())
     
@@ -163,7 +163,7 @@ def validate(valid_loader, model):
 
 if __name__ == '__main__':
     SEED = 42069
-    
+
     random.seed(SEED)
     np.random.seed(SEED)
     torch.manual_seed(SEED)
