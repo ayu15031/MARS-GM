@@ -29,6 +29,8 @@ from utils import collate_fn, collate_fn_Film
 from model import GraphRec
 from dataloader import GRDataset
 
+from matplotlib import pyplot as plt
+
 parser = argparse.ArgumentParser()
 
 parser.add_argument('--dataset', default='FilmTrust', help='dataset Name')
@@ -98,13 +100,18 @@ def main():
     optimizer = optim.RMSprop(model.parameters(), args.lr)
     criterion = nn.MSELoss()
     scheduler = StepLR(optimizer, step_size = args.lr_dc_step, gamma = args.lr_dc)
-
+    losses = []
+    maes = []
+    rmses = []
     for epoch in tqdm(range(args.epoch)):
         # train for one epoch
         scheduler.step(epoch = epoch)
-        trainForEpoch(train_loader, model, optimizer, epoch, args.epoch, criterion, log_aggr = 100)
-
+        curr_loss = trainForEpoch(train_loader, model, optimizer, epoch, args.epoch, criterion, log_aggr = 100)
+        
+        losses.append(curr_loss)
         mae, rmse = validate(valid_loader, model)
+        maes.append(mae)
+        rmses.append(rmse)
 
         # store best loss and save a model checkpoint
         ckpt_dict = {
@@ -123,6 +130,14 @@ def main():
 
         print('Epoch {} validation: MAE: {:.4f}, RMSE: {:.4f}, Best MAE: {:.4f}'.format(epoch, mae, rmse, best_mae))
 
+    print("Losses: ",losses)
+    print("Maes: ", maes)
+    print("Rmses: ", rmses)
+    plt.plot(range(args.epoch), losses)
+    plt.xlabel("Epochs")
+    plt.ylabel("Losses")
+
+    plt.savefig("training_losses.png")
 
 def trainForEpoch(train_loader, model, optimizer, epoch, num_epochs, criterion, log_aggr=1):
     model.train()
@@ -130,6 +145,7 @@ def trainForEpoch(train_loader, model, optimizer, epoch, num_epochs, criterion, 
     sum_epoch_loss = 0
 
     start = time.time()
+    total_iter = 0
     for i, (uids, iids, labels, u_items, u_users, u_users_items, i_users, i_items, i_items_users) in tqdm(enumerate(train_loader), total=len(train_loader)):
         uids = uids.to(device)
         iids = iids.to(device)
@@ -161,15 +177,18 @@ def trainForEpoch(train_loader, model, optimizer, epoch, num_epochs, criterion, 
         #     print('[TRAIN] epoch %d/%d batch loss: %.4f (avg %.4f) (%.2f im/s)'
         #         % (epoch + 1, num_epochs, loss_val, sum_epoch_loss / (i + 1),
         #           len(uids) / (time.time() - start)))
-
+        total_iter += 1
         start = time.time()
+
+    return sum_epoch_loss/total_iter
+    
 
 
 def validate(valid_loader, model):
     model.eval()
     errors = []
     with torch.no_grad():
-        for uids, iids, labels, u_items, u_users, u_users_items, i_users in tqdm(valid_loader):
+        for uids, iids, labels, u_items, u_users, u_users_items, i_users, i_items, i_items_users in tqdm(valid_loader):
             uids = uids.to(device)
             iids = iids.to(device)
             labels = labels.to(device)
@@ -177,9 +196,13 @@ def validate(valid_loader, model):
             u_users = u_users.to(device)
             u_users_items = u_users_items.to(device)
             i_users = i_users.to(device)
-            preds = model(uids, iids, u_items, u_users, u_users_items, i_users)
-            # print(preds.squeeze(1))
-            # print(labels)
+
+            if i_items is not None:
+                i_items = i_items.to(device)
+
+            if i_items_users is not None:
+                i_items_users = i_items_users.to(device)
+            preds = model(uids, iids, u_items, u_users, u_users_items, i_users, i_item_pad=i_items, i_item_user_pad=i_items_users, dataset=args.dataset)
             error = torch.abs(preds.squeeze(1) - labels)
             errors.extend(error.data.cpu().numpy().tolist())
     

@@ -1,7 +1,7 @@
 import torch
 import random
 
-truncate_len = 30
+truncate_len = 15
 
 """
 Ciao dataset info:
