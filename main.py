@@ -98,7 +98,7 @@ def main():
         return
 
     optimizer = optim.RMSprop(model.parameters(), args.lr)
-    criterion = nn.MSELoss()
+    criterion = nn.HuberLoss()
     scheduler = StepLR(optimizer, step_size = args.lr_dc_step, gamma = args.lr_dc)
     losses = []
     maes = []
@@ -159,7 +159,6 @@ def trainForEpoch(train_loader, model, optimizer, epoch, num_epochs, criterion, 
 
         if i_items_users is not None:
           i_items_users = i_items_users.to(device)
-        
         optimizer.zero_grad()
         outputs = model(uids, iids, u_items, u_users, u_users_items, i_users, i_item_pad=i_items, i_item_user_pad=i_items_users, dataset=args.dataset)
 

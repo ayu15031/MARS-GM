@@ -45,12 +45,12 @@ class _UserModel(nn.Module):
         self.g_v = _MultiLayerPercep(2 * self.emb_dim, self.emb_dim)
 
         self.user_items_att = _MultiLayerPercep(2 * self.emb_dim, self.num_heads)
-        self.user_items_head = _MultiLayerPercep(self.num_heads * 15, 15) #TODO change hardcode
+        self.user_items_head = _MultiLayerPercep(self.num_heads * 12, 12) #TODO change hardcode
         
         self.aggre_items = _Aggregation(self.emb_dim, self.emb_dim)
 
         self.user_users_att = _MultiLayerPercep(2 * self.emb_dim, self.num_heads)
-        self.user_users_head = _MultiLayerPercep(self.num_heads * 15, 15)
+        self.user_users_head = _MultiLayerPercep(self.num_heads * 12, 12)
 
         self.aggre_neigbors = _Aggregation(self.emb_dim, self.emb_dim)
         
@@ -157,12 +157,12 @@ class _ItemModel_GraphRecPlus(nn.Module):
         # self.item_users_att = _MultiLayerPercep(2 * self.emb_dim, 1)
 
         self.item_users_att = _MultiLayerPercep(2 * self.emb_dim, self.num_heads)
-        self.item_users_head = _MultiLayerPercep(15 * self.num_heads, 15) # TODO
+        self.item_users_head = _MultiLayerPercep(12 * self.num_heads, 12) # TODO
 
         self.aggre_items = _Aggregation(self.emb_dim, self.emb_dim)
 
         self.item_items_att = _MultiLayerPercep(2 * self.emb_dim, self.num_heads)
-        self.item_items_head = _MultiLayerPercep(15 * self.num_heads, 15) # TODO
+        self.item_items_head = _MultiLayerPercep(12 * self.num_heads, 12) # TODO
 
 
         self.aggre_item2item = _Aggregation(self.emb_dim, self.emb_dim)
@@ -266,7 +266,7 @@ class _ItemModel(nn.Module):
         self.g_u = _MultiLayerPercep(2 * self.emb_dim, self.emb_dim)
         
         self.item_users_att = _MultiLayerPercep(2 * self.emb_dim, self.num_heads)
-        self.item_users_head = _MultiLayerPercep(15 * self.num_heads, 15) # TODO 
+        self.item_users_head = _MultiLayerPercep(12 * self.num_heads, 12) # TODO 
         self.aggre_users = _Aggregation(self.emb_dim, self.emb_dim)
 
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
