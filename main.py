@@ -9,6 +9,7 @@ Created on 30 Sep, 2019
 import os
 import time
 import argparse
+import sys
 import pickle5 as pickle
 import numpy as np
 import random
@@ -17,19 +18,23 @@ from os.path import join
 
 import torch
 from torch import nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, dataset
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR
 from torch.autograd import Variable
 from torch.backends import cudnn
 
-from utils import collate_fn
+from utils import collate_fn, collate_fn_Film
 from model import GraphRec
 from dataloader import GRDataset
 
+from matplotlib import pyplot as plt
+
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset_path', default='dataset/Ciao/', help='dataset directory path: datasets/Ciao/Epinions')
+
+parser.add_argument('--dataset', default='FilmTrust', help='dataset Name')
+parser.add_argument('--dataset_path', default='dataset/FilmTrust/', help='dataset directory path: datasets/Ciao/Epinions')
 parser.add_argument('--batch_size', type=int, default=256, help='input batch size')
 parser.add_argument('--embed_dim', type=int, default=64, help='the dimension of embedding')
 parser.add_argument('--epoch', type=int, default=30, help='the number of epochs to train for')
@@ -55,16 +60,34 @@ def main():
         u_users_list = pickle.load(f)
         u_users_items_list = pickle.load(f)
         i_users_list = pickle.load(f)
-        (user_count, item_count, rate_count) = pickle.load(f)
-    
-    train_data = GRDataset(train_set, u_items_list, u_users_list, u_users_items_list, i_users_list)
-    valid_data = GRDataset(valid_set, u_items_list, u_users_list, u_users_items_list, i_users_list)
-    test_data = GRDataset(test_set, u_items_list, u_users_list, u_users_items_list, i_users_list)
-    train_loader = DataLoader(train_data, batch_size = args.batch_size, shuffle = True, collate_fn = collate_fn)
-    valid_loader = DataLoader(valid_data, batch_size = args.batch_size, shuffle = False, collate_fn = collate_fn)
-    test_loader = DataLoader(test_data, batch_size = args.batch_size, shuffle = False, collate_fn = collate_fn)
+        i_items_list = None
+        i_items_users_list = None
+        if args.dataset == 'FilmTrust':
+          i_items_list = pickle.load(f)
+          i_items_users_list = pickle.load(f)
 
-    model = GraphRec(user_count+1, item_count+1, rate_count+1, args.embed_dim).to(device)
+        (user_count, item_count, rate_count) = pickle.load(f)
+        
+    
+    # train_data, test_data, valid_data = DatasetManager(train_set, valid_set, test_set, u_items_list, u_users_list, u_users_items_list, i_users_list)
+    train_data = GRDataset(train_set, u_items_list, u_users_list, u_users_items_list, i_users_list, dataset=args.dataset, i_items_list=i_items_list, i_items_users_list=i_items_users_list)
+    valid_data = GRDataset(valid_set, u_items_list, u_users_list, u_users_items_list, i_users_list, dataset=args.dataset, i_items_list=i_items_list, i_items_users_list=i_items_users_list)
+    test_data = GRDataset(test_set, u_items_list, u_users_list, u_users_items_list, i_users_list, dataset=args.dataset, i_items_list=i_items_list, i_items_users_list=i_items_users_list)
+    # train_data = GRDataset(train_set, u_items_list, u_users_list, u_users_items_list, i_users_list)
+    # valid_data = GRDataset(valid_set, u_items_list, u_users_list, u_users_items_list, i_users_list)
+    # test_data = GRDataset(test_set, u_items_list, u_users_list, u_users_items_list, i_users_list)
+    
+    if args.dataset == "FilmTrust":
+      train_loader = DataLoader(train_data, batch_size = args.batch_size, shuffle = True, collate_fn = collate_fn_Film)
+      valid_loader = DataLoader(valid_data, batch_size = args.batch_size, shuffle = False, collate_fn = collate_fn_Film)
+      test_loader = DataLoader(test_data, batch_size = args.batch_size, shuffle = False, collate_fn = collate_fn_Film)
+    else:
+      train_loader = DataLoader(train_data, batch_size = args.batch_size, shuffle = True, collate_fn = collate_fn)
+      valid_loader = DataLoader(valid_data, batch_size = args.batch_size, shuffle = False, collate_fn = collate_fn)
+      test_loader = DataLoader(test_data, batch_size = args.batch_size, shuffle = False, collate_fn = collate_fn)
+
+    
+    model = GraphRec(user_count+1, item_count+1, rate_count+1, args.embed_dim, args.dataset).to(device)
 
     if args.test:
         print('Load checkpoint and testing...')
@@ -75,15 +98,20 @@ def main():
         return
 
     optimizer = optim.RMSprop(model.parameters(), args.lr)
-    criterion = nn.MSELoss()
+    criterion = nn.HuberLoss()
     scheduler = StepLR(optimizer, step_size = args.lr_dc_step, gamma = args.lr_dc)
-
+    losses = []
+    maes = []
+    rmses = []
     for epoch in tqdm(range(args.epoch)):
         # train for one epoch
         scheduler.step(epoch = epoch)
-        trainForEpoch(train_loader, model, optimizer, epoch, args.epoch, criterion, log_aggr = 100)
-
+        curr_loss = trainForEpoch(train_loader, model, optimizer, epoch, args.epoch, criterion, log_aggr = 100)
+        
+        losses.append(curr_loss)
         mae, rmse = validate(valid_loader, model)
+        maes.append(mae)
+        rmses.append(rmse)
 
         # store best loss and save a model checkpoint
         ckpt_dict = {
@@ -102,6 +130,14 @@ def main():
 
         print('Epoch {} validation: MAE: {:.4f}, RMSE: {:.4f}, Best MAE: {:.4f}'.format(epoch, mae, rmse, best_mae))
 
+    print("Losses: ",losses)
+    print("Maes: ", maes)
+    print("Rmses: ", rmses)
+    plt.plot(range(args.epoch), losses)
+    plt.xlabel("Epochs")
+    plt.ylabel("Losses")
+
+    plt.savefig("training_losses.png")
 
 def trainForEpoch(train_loader, model, optimizer, epoch, num_epochs, criterion, log_aggr=1):
     model.train()
@@ -109,7 +145,8 @@ def trainForEpoch(train_loader, model, optimizer, epoch, num_epochs, criterion, 
     sum_epoch_loss = 0
 
     start = time.time()
-    for i, (uids, iids, labels, u_items, u_users, u_users_items, i_users) in tqdm(enumerate(train_loader), total=len(train_loader)):
+    total_iter = 0
+    for i, (uids, iids, labels, u_items, u_users, u_users_items, i_users, i_items, i_items_users) in tqdm(enumerate(train_loader), total=len(train_loader)):
         uids = uids.to(device)
         iids = iids.to(device)
         labels = labels.to(device)
@@ -117,13 +154,18 @@ def trainForEpoch(train_loader, model, optimizer, epoch, num_epochs, criterion, 
         u_users = u_users.to(device)
         u_users_items = u_users_items.to(device)
         i_users = i_users.to(device)
-        
+        if i_items is not None:
+          i_items = i_items.to(device)
+
+        if i_items_users is not None:
+          i_items_users = i_items_users.to(device)
         optimizer.zero_grad()
-        outputs = model(uids, iids, u_items, u_users, u_users_items, i_users)
+        outputs = model(uids, iids, u_items, u_users, u_users_items, i_users, i_item_pad=i_items, i_item_user_pad=i_items_users, dataset=args.dataset)
 
         loss = criterion(outputs, labels.unsqueeze(1))
         loss.backward()
-        optimizer.step() 
+        optimizer.step()
+        # scheduler.step()
 
         loss_val = loss.item()
         sum_epoch_loss += loss_val
@@ -134,15 +176,18 @@ def trainForEpoch(train_loader, model, optimizer, epoch, num_epochs, criterion, 
         #     print('[TRAIN] epoch %d/%d batch loss: %.4f (avg %.4f) (%.2f im/s)'
         #         % (epoch + 1, num_epochs, loss_val, sum_epoch_loss / (i + 1),
         #           len(uids) / (time.time() - start)))
-
+        total_iter += 1
         start = time.time()
+
+    return sum_epoch_loss/total_iter
+    
 
 
 def validate(valid_loader, model):
     model.eval()
     errors = []
     with torch.no_grad():
-        for uids, iids, labels, u_items, u_users, u_users_items, i_users in tqdm(valid_loader):
+        for uids, iids, labels, u_items, u_users, u_users_items, i_users, i_items, i_items_users in tqdm(valid_loader):
             uids = uids.to(device)
             iids = iids.to(device)
             labels = labels.to(device)
@@ -150,9 +195,13 @@ def validate(valid_loader, model):
             u_users = u_users.to(device)
             u_users_items = u_users_items.to(device)
             i_users = i_users.to(device)
-            preds = model(uids, iids, u_items, u_users, u_users_items, i_users)
-            # print(preds.squeeze(1))
-            # print(labels)
+
+            if i_items is not None:
+                i_items = i_items.to(device)
+
+            if i_items_users is not None:
+                i_items_users = i_items_users.to(device)
+            preds = model(uids, iids, u_items, u_users, u_users_items, i_users, i_item_pad=i_items, i_item_user_pad=i_items_users, dataset=args.dataset)
             error = torch.abs(preds.squeeze(1) - labels)
             errors.extend(error.data.cpu().numpy().tolist())
     
