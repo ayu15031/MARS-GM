@@ -1,7 +1,7 @@
 ## MARS-GM: Multi Headed Recommendation System using Graphical Modeling
 PyTorch implementation of the MARS-GM model which is meant to be a flexible framework for building, training and testing social recommendation models using Graph Modeling. The code has been developed using the GraphRec model codebase in [Graph Neural Networks for Social Recommendation](https://arxiv.org/pdf/1902.07243.pdf) (Fan, Wenqi, et al. "Graph Neural Networks for Social Recommendation." The World Wide Web Conference. ACM, 2019).
 
-![architecture](assets/graphrec.png)
+![architecture](assets/ModelPipeline.png)
 
 
 # Usage
