@@ -13,12 +13,12 @@ pip install -r requirements.txt
 
 2. Preprocess dataset. Two pkl files named dataset and list should be generated in the respective folders of the dataset.
 ```bash
-python preprocess FilmTrust
+python preprocess --dataset FilmTrust
 ```
 
 3. Run main.py file to train the model. You can configure some training parameters through the command line. 
 ```bash
-python main.py
+python main.py --epoch 30 --lr 10e-5
 ```
 
 4. Run main.py file to test the model.
